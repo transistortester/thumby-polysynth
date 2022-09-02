@@ -48,8 +48,8 @@ Keep in mind that polysynth is capable of *much* more, these are just the basics
 polysynth.configure() #all square waves
 polysynth.enabled(3) #turn on the first 3 channels
 polysynth.setnote(0, 72) #channel 0, C
-polysynth.setnote(0, 76) #channel 1, E
-polysynth.setnote(0, 79) #channel 2, G
+polysynth.setnote(1, 76) #channel 1, E
+polysynth.setnote(2, 79) #channel 2, G
 time.sleep(3)
 polysynth.stop()
 ```
@@ -61,16 +61,18 @@ pitch = 8000.0
 for i in range(500):
     polysynth.setpitch(0, pitch)
     pitch *= 0.99
-polysynth.stop
+    time.sleep_ms(1)
+polysynth.stop()
 ```
+This can also be done with an *instrument*, see example 4
 #### Playing a song
 ```python
 polysynth.configure()
 song = midi.load(open("2ChannelTest.mid", "rb"))
 polysynth.play(song) #playing a loaded MIDI file automatically sets the needed channel count by default
 while polysynth.playing:
-    time.sleep(100)
-polysynth.stop()
+    time.sleep_ms(100)
+polysynth.stop() #this shouldn't be necessary since the song ended on it's own, but it's a good idea to call at the end just to be be sure
 ```
 #### Looping song, sound effect
 ```python
@@ -82,6 +84,7 @@ while polysynth.playing:
         polysynth.playnote(0, 125, polysynth.instrument(rise=-50, length=500)) #start at note 125, decrease by 50 per second, for 500 milliseconds
     if thumby.buttonB.justPressed():
         polysynth.stop()
+    thumby.display.update()
 ```
 ## Documentation
 ### Core functions
@@ -91,7 +94,7 @@ Sets up PIO cores.
 * *corecount* is how many PIO cores to dedicate to audio channels. **This should never be changed unless you need to save PIO cores for another purpose, it currently breaks functionality**
 #### polysynth.enabled(*value=None*)
 Returns the current number of enabled channels.
-* *value* is a number from 0 to 7. If set, it will enable the given number of channels. If 0 are enabled, the channels will be paused, allowing up to 4 pitch changes to be queued.
+* *value* is a number from 0 to 7. If set, it will enable the given number of channels. If 0 are enabled, the channels will be paused, allowing up to 4 pitch changes per channel to be queued.
 #### polysynth.stop(*mixer=True, chan=True, song=True*)
 Stops one or more components from playing.
 * *mixer* will set the enabled channel count to 0
@@ -99,11 +102,11 @@ Stops one or more components from playing.
 * *song* will stop the audio timer
 #### polysynth.setpitch(*chan, pitch*)
 Set a channel's pitch in hertz.
-* *chan* is a number from 0 to 7
+* *chan* is a number from 0 to 6
 * *pitch* is a number, either integer of float. Setting pitch to None or 0 will disable output. Disabling output will clear the internal counter.
 #### polysynth.setnote(*chan, pitch*)
 Set a channel's pitch to a specific note, according to MIDI note numbering
-* *chan* is a number from 0 to 7
+* *chan* is a number from 0 to 6
 * *pitch* is a number, either integer of float. Setting pitch to None will disable output. Disabling output will clear the internal counter.
 ### Sequencer functions
 #### polysynth.playing
@@ -119,7 +122,7 @@ Returns an instrument for use in the sequencer.
 * *length* is the duration before the note automatically stops, milliseconds.
 #### polysynth.playnote(*chan, pitch, ins=None*)
 Functionally the same as *polysynth.setnote*, except an instrument can be specified.
-* *chan* is a number from 0 to 7
+* *chan* is a number from 0 to 6
 * *pitch* is a number, either integer of float. Setting pitch to None will disable output. Disabling output will clear the internal counter.
 * *ins* is a sequencer instrument. This will start the audio timer if needed.
 #### polysynth.play(*song, ins={}, autoenable=True, loop=False*)
