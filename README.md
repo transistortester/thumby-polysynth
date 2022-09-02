@@ -66,6 +66,7 @@ polysynth.stop()
 ```
 This can also be done with an *instrument*, see example 4
 #### Playing a song
+*([2ChannelTest.mid](./assets/2ChannelTest.mid))*
 ```python
 polysynth.configure()
 song = midi.load(open("2ChannelTest.mid", "rb"))
@@ -75,6 +76,7 @@ while polysynth.playing:
 polysynth.stop() #this shouldn't be necessary since the song ended on it's own, but it's a good idea to call at the end just to be be sure
 ```
 #### Looping song, sound effect
+*([2ChannelTest.mid](./assets/2ChannelTest.mid))*
 ```python
 polysynth.configure([polysynth.NOISE])
 song = midi.load(open("2ChannelTest.mid", "rb"), reserve={0:[]}) #reserve channel 0 for no specified instruments - this makes the song never use it
@@ -86,6 +88,7 @@ while polysynth.playing:
         polysynth.stop()
     thumby.display.update()
 ```
+**For a more complex example, see [PSdemo](./PSdemo) *(video [here](./assets/polysynth-demo-recompressed.mp4))***
 ## Documentation
 ### Core functions
 #### polysynth.configure(*types=None, corecount=7*)
@@ -128,7 +131,7 @@ Functionally the same as *polysynth.setnote*, except an instrument can be specif
 #### polysynth.play(*song, ins={}, autoenable=True, loop=False*)
 Start playing a song in the background. This will start the audio timer.
 * *song* is a list of sequencer events. This is internally wrapped in a stream class and played as a stream.
-* *ins* is a dict of sequencer instruments. Each entry is insName:instrument. Notes will automatically use their specified instrument if it's in the dict. *insName* can be any valid dict key, but with loaded MIDI files it will be a number from 0 to 127, directly mapping to MIDI instrument *(patch)* numbers.
+* *ins* is a dict of sequencer instruments. Each entry is insName:instrument. Notes will automatically use their specified instrument if it's in the dict. *insName* can be any valid dict key, but with loaded MIDI files it will be a number from 0 to 127, directly mapping to MIDI instrument numbers.
 * *autoenable* determines if the event stream is allowed to change the number of enabled channels.
 * *loop* will loop the song, if supported by the stream type (guaranteed in this case).
 #### polysynth.playstream(song, ins={}, autoenable=True, loop=False)
@@ -137,11 +140,11 @@ Functionally identical to *polysynth.play*, except *song* is a stream of events 
 #### midi.load(*data, mute=None, solo=None, reserve={}, automap=True, callbacks={}*)
 Load a MIDI file and return a list of events ready for playback. This will determine the necessary number of channels to play the song, and insert an event at the beginning to enable that many channels.
 * *data* is an open file or file-like object, seeked to the start of a MIDI file.
-* *mute* is a list or set of MIDI instrument *(patch)* numbers. They will be ignored while loading.
-* *solo* is a list or set of MIDI instrument *(patch)* numbers. If specified, they will be the **only** instruments loaded.
-* *reserve* is a dict of physical channels (0-6), reserved for specific instruments. Each entry is channelNum:\[patchNumbers\]. If a channel is reserved, only the designated MIDI instruments are allowed to play on it. Additionally, the given instruments are **only** allowed to play on their designated channel, and will overwrite whatever is playing on the channel. *NOISE* channels should always be reserved, even if they are not used in the song, to prevent them being unintentionally used for melodic instruments. Reserved channels should be the lowest numbered possible, especially if they aren't used in the song, to prevent them from being beyond the *enabled* range.
+* *mute* is a list or set of MIDI instrument numbers. They will be ignored while loading.
+* *solo* is a list or set of MIDI instrument numbers. If specified, they will be the **only** instruments loaded.
+* *reserve* is a dict of physical channels (0-6), reserved for specific instruments. Each entry is channelNum:\[insNumbers\]. If a channel is reserved, only the designated MIDI instruments are allowed to play on it. Additionally, the given instruments are **only** allowed to play on their designated channel, and will overwrite whatever is playing on the channel. *NOISE* channels should always be reserved, even if they are not used in the song, to prevent them being unintentionally used for melodic instruments. Reserved channels should be the lowest numbered possible, especially if they aren't used in the song, to prevent them from being beyond the *enabled* range.
 * *automap* determines if the loader automatically assigns notes to available channels. If False, MIDI channels will correspond directly to physical channels.
-* *callbacks* is a dict of functions to insert into the event stream. Each entry is patchNumber:func. If a note is played with the given MIDI instrument number, instead of playing the note, it will run the function, passing the midiPitch of the note as an argument.
+* *callbacks* is a dict of functions to insert into the event stream. Each entry is insNumber:func. If a note is played with the given MIDI instrument number, instead of playing the note, it will run the function, passing the midiPitch of the note as an argument.
 #### midi.loadstream(*data, mute=None, solo=None, reserve={}, automap=True, callbacks={}*)
 Functionally identical to *midi.load* except it returns a stream instead of a list. Does not change the enabled channel count as it can't be determined without loading the whole file.
 **If you have enough memory to fully load a song, it is always recommended to prefer *midi.load* over *midi.loadstream* as parsing the file on the fly uses more resources and can result in subtle timing inaccuracies**
@@ -156,3 +159,36 @@ These can be stored in a list and played with *polysynth.play*, or they can be p
 * *nextevent* - A variable containing the next event. If None, the stream has ended.
 * *readevent()* - A function that puts the next event in *nextevent* variable.
 * *reset()* - A function that starts the stream from the beginning, if possible. **Must return True if it *does* reset, False if it *doesn't***.
+## Additional details
+### MIDI note numbering/midiPitch
+![Diagram showing how MIDI numbers map to notes on a piano](./assets/midinumbers.png)
+
+For convenience, several components of this use MIDI note numbering, even those that are not related to the MIDI section itself.
+
+MIDI uses one number per note, ranging from 0 to 127, extending both below and above the full range of a piano (highlighted above). Middle C is number 60, for instance.
+
+All functions in this library that accept midiPitch tolerate floats, and numbers *beyond* the normal MIDI range (though there's not much point since they rapidly exceed audible range).
+### Volume
+Audio is always output at maximum volume, split evenly between the enabled channels. The fewer channels that are enabled, the louder each individual one will be.
+### Use on other RP2040 devices
+As long as the PIO isn't already in use, this will function on any RP2040 device, provided that GPIO pins `7, 8, 9, 10, 11, 21, 22,` and `25` are disconnected and not in use. Audio will be output on GPIO 28, using PWM at above-audible frequencies.
+
+It was developed and tested on a Raspberry Pi Pico (pin 25 being used for the LED doesn't seem to affect it).
+## Limitations
+#### New pitches aren't applied to channels until the next half-cycle of their current pitch
+With very low pitches (less than ~20 hertz), the delay before the new pitch is applied can start to become noticeable. Absurdly low pitches (less than 1 hertz) can take several seconds before a new pitch is applied.
+
+This can be mitigated by clearing the pitch before setting a new one.
+#### Synchronizing the phase of multiple channels requires pausing *all* output
+Phase control requires queueing multiple pitch changes, which is not possible without setting the enabled channel count to 0 while writing.
+
+This cannot be fixed without changing how synchronization works in the PIO programs.
+#### Certain functions may interfere with timing precision within the sequencer
+The sequencer uses `machine.Timer` at 50 hertz to update pitches. Certain functions, notably *native* and *viper* functions, cannot be interrupted by this. If such a function takes too long to run, it can audibly degrade note timing.
+
+#### MIDI CCs and channel 10 (percussion) are ignored
+To save on complexity, MIDI CCs are discarded. Pitch bend currently has to be implemented using the *rise* argument in a *polysynth.instrument*.
+
+MIDI Channel 10, reserved for percussion, is currently discarded both because the configuration of *NOISE* channels is unknown, and to eliminate the need for a drum database. Percussion can still be used by manually reserving instrument(s) for playback on *NOISE* channels.
+## Other stuff
+This was originally supposed to be a quick experiment to learn the PIO for an unrelated project, but feature creep got to me, and now here we are. In it's current state, it is rougher than I wanted it to be, but I haven't been able to program much recently and wanted to get a usable version released sooner than later. Despite my desires to clean and optimize the core more before release, it is currently perfectly usable.
