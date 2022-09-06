@@ -190,5 +190,8 @@ The sequencer uses `machine.Timer` at 50 hertz to update pitches. Certain functi
 To save on complexity, MIDI CCs are discarded. Pitch bend currently has to be implemented using the *rise* argument in a *polysynth.instrument*.
 
 MIDI Channel 10, reserved for percussion, is currently discarded both because the configuration of *NOISE* channels is unknown, and to eliminate the need for a drum database. Percussion can still be used by manually reserving instrument(s) for playback on *NOISE* channels.
+
+#### This only works on real hardware - It will not run on the emulator
+This depends on both hardware and physical characteristics which aren't emulated, and would be difficult to add support for.
 ## Other stuff
 This was originally supposed to be a quick experiment to learn the PIO for an unrelated project, but feature creep got to me, and now here we are. In it's current state, it is rougher than I wanted it to be, but I haven't been able to program much recently and wanted to get a usable version released sooner than later. Despite my desires to clean and optimize the code more before release, it is currently perfectly usable.
