@@ -39,6 +39,8 @@ polysynth.configure([polysynth.SQUARE, polysynth.NOISE]) #channel 0 is square, c
 Once initialized, it's ready for use. From this point you can enable channels, play tones, sound effects, songs, etc.
 
 If you need to change the configuration, you can do so at any point.
+
+*Note: If you change the clock speed with `machine.freq()`, you must also reconfigure the channels for pitches to be correct.*
 ### Examples
 These assume that `polysynth`, `midi`, `time`, and `thumby` have all been imported.
 
