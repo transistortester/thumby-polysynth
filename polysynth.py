@@ -3,6 +3,13 @@ import rp2
 import time
 import math
 
+try:
+    import emulator
+    emulated = True
+    print("[polysynth] Emulator detected, sound will only play on channel 0")
+except ImportError:
+    emulated = False
+
 unusedpins = [7, 8, 9, 10, 11, 21, 22] #do not change or reorder these - their relative positions are hardcoded in pio_mixer.
 commpins = [machine.Pin(i, machine.Pin.OUT) for i in unusedpins] #these pins are for communication between PIO cores. Each one will have one audio channel on it for the main core to mix together.
 waitpin = machine.Pin(25, machine.Pin.OUT) #sends inhibit signal to the audio channels. 25 is hardcoded in the wavegens since in_base is already in use. This sadly seems imperfect, but is necessary since the IRQ flags aren't shared between the two PIO blocks.
@@ -96,6 +103,48 @@ def pio_mixer():
     jmp(y_dec, "nextchannel") [13] #this delay happens on all but the last channel, leaving time for prep before the next set of channels
 
 
+class pio_placeholder: #used instead of the actual PIO when running under emulation
+    def __init__(self, coretype=None, channel=None): #coretype 0 = mixer, 1 = square, 2 = noise
+        self.is_active = False
+        self.coretype = coretype
+        self.channel = channel
+        self.freq = 0
+    
+    def active(self, value=None):
+        if value != None:
+            if value: self.is_active = True
+            else: self.is_active = False
+        return self.is_active
+    
+    def restart():
+        pass
+    
+    def exec(self, value):
+        pass
+    
+    def get(self, buf=None, shift=0):
+        return 0
+    
+    def put(self, value, shift=0):
+        if self.coretype == 0:
+            if value == 0:
+                emulator.audio_breakpoint(0)
+            elif channels[0].coretype == 1:
+                emulator.audio_breakpoint(channels[0].freq)
+        elif self.coretype == 1 and self.channel == 0:
+            if value == 0:
+                self.freq = 0
+            else:
+                self.freq = int(tickfreq / value / 2)
+            emulator.audio_breakpoint(self.freq)
+    
+    def rx_fifo(self):
+        return 0
+    
+    def tx_fifo(self):
+        return 0
+
+
 def configure(types=None, corecount=7): #set up state machines
     global synthcore, channels, tickfreq, channelcount, config
     
@@ -105,12 +154,14 @@ def configure(types=None, corecount=7): #set up state machines
     pool1 = [1,2,3] #state machines capable of square only
     pool2 = [4,5,6,7] #state machines capable of both
     
-    synthcore = rp2.StateMachine(0, pio_mixer, in_base=commpins[0], out_base=audiopin, set_base=waitpin, freq=cyclesperchannel*corecount*samplerate) #the frequency of this isn't particularly important as long as it's high enough to output every channel above audible range
+    if emulated: synthcore = pio_placeholder(coretype=0)
+    else: synthcore = rp2.StateMachine(0, pio_mixer, in_base=commpins[0], out_base=audiopin, set_base=waitpin, freq=cyclesperchannel*corecount*samplerate) #the frequency of this isn't particularly important as long as it's high enough to output every channel above audible range
     synthcore.put(0)
     synthcore.active(1)
     channelcount = 0
     
-    tickfreq = machine.freq() // 8
+    if emulated: tickfreq = 133000000 // 8
+    else: tickfreq = machine.freq() // 8
     
     channels = []
     for i in range(corecount):
@@ -120,7 +171,8 @@ def configure(types=None, corecount=7): #set up state machines
             else:
                 print("[polysynth] Not enough channels available for requested configuration.")
                 break
-            channels.append(rp2.StateMachine(sm, pio_wavegen, in_base=commpins[i], out_base=commpins[i]))
+            if emulated: channels.append(pio_placeholder(coretype=1, channel=i))
+            else: channels.append(rp2.StateMachine(sm, pio_wavegen, in_base=commpins[i], out_base=commpins[i]))
             
         elif config[i] == NOISE:
             if len(pool2): sm = pool2.pop() #select a free state machine from the noise pool
@@ -130,7 +182,8 @@ def configure(types=None, corecount=7): #set up state machines
             else:
                 print("[polysynth] Not enough channels available for requested configuration.")
                 break
-            channels.append(rp2.StateMachine(sm, pio_lfsr, in_base=commpins[i], out_base=commpins[i]))
+            if emulated: channels.append(pio_placeholder(coretype=2, channel=i))
+            else: channels.append(rp2.StateMachine(sm, pio_lfsr, in_base=commpins[i], out_base=commpins[i]))
             
         channels[-1].put(0) #disable by default
         channels[-1].active(1)
@@ -150,6 +203,8 @@ def stop(mixer=True, chan=True, song=True):
         playing = False
         timer.deinit()
         notes = [None for i in range(7)]
+        for i in streams:
+            stopstream(i)
     if chan:
         for i in channels: i.put(0)
     if mixer:
@@ -177,15 +232,15 @@ def setnote(chan, pitch): #set a channel's pitch to a specific note, according t
 
 
 timer = machine.Timer()
-stream = None
-eventstart = 0
 playing = False
-autoreset = False
-setenabled = False
+updatefreq = 50 #how many times per second audiotick() is run
+streams = {} #each is num:[Stream, instrumentList, [startTime, autoReset, setEnabled, speed, transpose]]
+streamnum = 0 #ID of next stream
+claims = [0 for i in range(7)] #what stream is currently using each channel. Only streams of >= the ID are allowed to override what's playing.
 notes = [None for i in range(7)] #what MIDI notes are currently playing
 instruments = [None for i in range(7)] #persistently playing instruments. Each is either None or (phaseLocked, pitch, vibratoSpeed, vibratoAmount, startTime, channel, rise, length)
 
-ilist = {} #defined instruments. Each is (phaseLocked, phaseOffset, detune, vibratoSpeed, vibratoAmount, rise, length).
+#ilist = {} #defined instruments. Each is (phaseLocked, phaseOffset, detune, vibratoSpeed, vibratoAmount, rise, length).
 #phaseLocked is a bool
 #phaseOffset is a float, halfCycles (0.5 is 90 degrees out of phase, 1.0 is 180, 1.5 is 270, etc.
 #detune is a float, midiPitch
@@ -206,6 +261,16 @@ def makepersist(chan, pitch, ins, starttime):
         return None
 
 
+def updaterate(value=None): #set sequencer update rate
+    global updatefreq
+    if value != None:
+        updatefreq = value
+        if playing:
+            timer.deinit() #restart timer so the change takes effect
+            timer.init(freq=updatefreq, mode=machine.Timer.PERIODIC, callback=audiotick)
+    return updatefreq
+
+
 #supported events:
 #Note off - (timestamp_ms, 0, channel)
 #Note on - (timestamp_ms, 1, channel, midiPitch, instrumentNum)
@@ -213,58 +278,67 @@ def makepersist(chan, pitch, ins, starttime):
 #Run a callback function - (timestamp_ms, 3, function, data) - data is usually repurposed midiPitch, but can be anything
 #@micropython.native
 def audiotick(dummy):
-    global playing, eventstart, notes, stream
+    global playing, notes, streams, claims
     stop = True
     lockedwrites = [] #phase-locked changes - each is (channel, value). This should probably be changed to have one queue per channel to avoid multiple notes per tick messing up timing.
     
-    if stream != None and stream.nextevent != None: #if a song needs playing
-        stop = False
-        while stream.nextevent != None and stream.nextevent[0] < time.ticks_ms()-eventstart:
-            event = stream.nextevent
-            #print(event)
-            if event[1] == 1: #note on
-                notes[event[2]] = event[3]
-                instruments[event[2]] = None
-                
-                if not event[4] in ilist: #no defined instrument
-                    setnote(event[2], event[3])
-                    
-                else:
-                    ins = ilist[event[4]]
-                    halfcycle = int(tickfreq // (2*czero*twelveroottwo**(event[3] + ins[2])))
-                    
-                    if ins[4] or ins[5] or ins[6]: #has vibrato, rise, or duration
-                        instruments[event[2]] = makepersist(event[2], event[3], ins, event[0]+eventstart)
-                    
-                    elif ins[1] != None: #has specified phase offset
-                        lockedwrites.append((event[2], 0)) #clear current phase
-                        lockedwrites.append((event[2], int(halfcycle*(1.0+ins[1])) - 1)) #delay to get intended phase amount
-                        lockedwrites.append((event[2], halfcycle - 1)) #set intended pitch
+    for streamid in streams:
+        stream, ilist, meta = streams[streamid]
+        if stream.nextevent != None: #if a song needs playing
+            stop = False
+            while stream.nextevent != None and stream.nextevent[0] < (time.ticks_ms()-meta[0])*meta[3]:
+                event = stream.nextevent
+                #print(event)
+                if event[1] == 1: #note on
+                    if 0 <= event[2] < 7 and streamid >= claims[event[2]]: #valid channel
+                        notes[event[2]] = event[3]
+                        claims[event[2]] = streamid
+                        instruments[event[2]] = None
                         
-                    elif ins[0]: #phase locked
-                        lockedwrites.append((event[2], 0)) #clear current phase
-                        lockedwrites.append((event[2], halfcycle - 1)) #set intended pitch
-                    
-                    elif channels[event[2]].tx_fifo() < 4: #not phase locked
-                        channels[event[2]].put(halfcycle-1)
+                        if not event[4] in ilist: #no defined instrument
+                            setnote(event[2], event[3] + meta[4])
+                            
+                        else:
+                            ins = ilist[event[4]]
+                            halfcycle = int(tickfreq // (2*czero*twelveroottwo**(event[3] + meta[4] + ins[2])))
+                            
+                            if ins[4] or ins[5] or ins[6]: #has vibrato, rise, or duration
+                                instruments[event[2]] = makepersist(event[2], event[3]+meta[4], ins, event[0]+meta[0])
+                            
+                            elif ins[1] != None: #has specified phase offset
+                                lockedwrites.append((event[2], 0)) #clear current phase
+                                lockedwrites.append((event[2], int(halfcycle*(1.0+ins[1])) - 1)) #delay to get intended phase amount
+                                lockedwrites.append((event[2], halfcycle - 1)) #set intended pitch
+                            
+                            elif ins[0]: #phase locked
+                                lockedwrites.append((event[2], 0)) #clear current phase
+                                lockedwrites.append((event[2], halfcycle - 1)) #set intended pitch
+                            
+                            elif channels[event[2]].tx_fifo() < 4: #not phase locked
+                                channels[event[2]].put(halfcycle-1)
+                
+                elif event[1] == 0: #note off
+                    if 0 <= event[2] < 7 and streamid >= claims[event[2]]: #valid channel
+                        notes[event[2]] = None
+                        claims[event[2]] = 0
+                        setnote(event[2], None)
+                        instruments[event[2]] = None
+                
+                elif event[1] == 2: #set channel count
+                    if meta[2]: #is allowed to change channel count
+                        enabled(event[2])
+                
+                elif event[1] == 3: #run callback
+                    event[2](event[3])
+                
+                stream.readevent()
             
-            elif event[1] == 0: #note off
-                notes[event[2]] = None
-                setnote(event[2], None)
-                instruments[event[2]] = None
-            
-            elif event[1] == 2: #set channel count
-                if setenabled:
-                    enabled(event[2])
-            
-            elif event[1] == 3: #run callback
-                event[2](event[3])
-            
-            stream.readevent()
+            if stream.nextevent == None and meta[1]: #song finished, needs to loop
+                if stream.reset():
+                    meta[0] = time.ticks_ms()
         
-        if stream.nextevent == None and autoreset:
-            if stream.reset():
-                eventstart = time.ticks_ms()
+        else: #song finished
+            stopstream(streamid)
     
     for i in range(7):
         if instruments[i] != None: #if an instrument needs updating
@@ -273,6 +347,7 @@ def audiotick(dummy):
             
             if ins[7] and (time.ticks_ms() > ins[4]+ins[7]):
                 instruments[i] = None
+                claims[i] = 0
                 if channels[ins[5]].tx_fifo() < 4:
                     channels[ins[5]].put(0)
                 continue
@@ -293,8 +368,8 @@ def audiotick(dummy):
     
     if stop:
         timer.deinit()
-        notes = [None for i in range(7)]
-        stream = None
+        for streamid in streams:
+            stopstream(streamid)
         playing = False
         #print("Timer stopped")
 
@@ -334,28 +409,32 @@ class StreamWrapper: #turn a list of events into a stream
         return self.nextevent
 
 
-def play(song, ins={}, autoenable=True, loop=False): #song events, instruments, whether or not to automatically set/change the channel count
-    global stream, eventstart, playing, instruments, ilist, setenabled, autoreset
+def play(song, ins={}, autoenable=True, loop=False, speed=1, transpose=0): #song events, instruments, whether or not to automatically set/change the channel count
     stream = StreamWrapper(song)
-    playing = True
-    autoreset = loop
-    instruments = [None for i in range(len(channels))]
-    ilist = ins
-    setenabled = autoenable
-    eventstart = time.ticks_ms()
-    timer.init(freq=50, mode=machine.Timer.PERIODIC, callback=audiotick)
+    return playstream(stream, ins, autoenable, loop, speed, transpose)
 
 
-def playstream(song, ins={}, autoenable=True, loop=False): #song events, instruments, whether or not to automatically set/change the channel count
-    global stream, eventstart, playing, instruments, ilist, setenabled, autoreset
-    stream = song
+def playstream(song, ins={}, autoenable=True, loop=False, speed=1, transpose=0): #song events, instruments, whether or not to automatically set/change the channel count
+    global streams, streamnum, playing
     playing = True
-    autoreset = loop
-    instruments = [None for i in range(len(channels))]
-    ilist = ins
-    setenabled = autoenable
-    eventstart = time.ticks_ms()
-    timer.init(freq=50, mode=machine.Timer.PERIODIC, callback=audiotick)
+    streamid = streamnum
+    streamnum += 1
+    streams[streamid] = [song, ins, [time.ticks_ms(), loop, autoenable, speed, transpose]]
+    timer.init(freq=updatefreq, mode=machine.Timer.PERIODIC, callback=audiotick)
+    return streamid
+
+
+@micropython.native #Native should prevent the timer from interrupting this (until the .reset()), which could otherwise introduce a race condition. Should this ever have issues a proper "do not interrupt" flag can be added in.
+def stopstream(streamid):
+    global streams, claims, instruments, notes
+    if streamid in streams:
+        streams.pop(streamid)[0].reset() #remove and then reset stream
+        for i in range(7):
+            if claims[i] == streamid: #clear any channels it was using
+                claims[i] = 0
+                instruments[i] = None
+                notes[i] = None
+                setpitch(i, None)
 
 
 def playnote(chan, pitch, ins=None):
@@ -373,5 +452,4 @@ def playnote(chan, pitch, ins=None):
     instruments[chan] = persist
     if not playing:
         playing = True
-        timer.init(freq=50, mode=machine.Timer.PERIODIC, callback=audiotick)
-
+        timer.init(freq=updatefreq, mode=machine.Timer.PERIODIC, callback=audiotick)
