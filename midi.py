@@ -238,6 +238,7 @@ class MappedStream:
 #mute/solo are iterables of instrument numbers, reserve is a dict of physicalChannelNumber:(bound instrument numbers), callbacks is a dict of {instrumentNum:func} where func is called with the note number while playing
 def load(data, mute=None, solo=None, reserve={}, automap=True, callbacks={}): #load an entire song into a list, like the original monolithic loader
     gc.collect()
+    oldthreshold = gc.threshold()
     gc.threshold(8000) #aggressive garbage collection to prevent memory fragmentation. Anything from 8000-16000 seems like a good balance, nearly as fast while effectively mitigating it.
     events = [(0, 2, 7)] #start with a channel count event
     stream = MappedStream(data, mute=mute, solo=solo, reserve=reserve, automap=automap, callbacks=callbacks)
@@ -246,8 +247,8 @@ def load(data, mute=None, solo=None, reserve={}, automap=True, callbacks={}): #l
         stream.readevent()
     events[0] = (0, 2, stream.maxchannels+1) #set the starting channel count to the max needed
     if stream.notenoughchannels: print("[MIDI] Warning: Song uses more channels than are available. Some notes may be cut off.")
-    print(f"[MIDI] Song needs {stream.maxchannels+1} channel(s) to play.")
-    gc.threshold(-1)
+    print(f"[MIDI] Song needs {stream.maxchannels+1} channel(s) enabled to play properly.")
+    gc.threshold(oldthreshold) #return gc to previous threshold
     gc.collect()
     return events
 
