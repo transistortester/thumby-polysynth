@@ -151,11 +151,12 @@ Load a MIDI file and return a list of events ready for playback. This will deter
 Functionally identical to *midi.load* except it returns a stream instead of a list. Does not change the enabled channel count as it can't be determined without loading the whole file.
 **If you have enough memory to fully load a song, it is always recommended to prefer *midi.load* over *midi.loadstream* as parsing the file on the fly uses more resources and can result in subtle timing inaccuracies**
 ### Sequencer stream format
-The sequencer currently only supports 4 event types. Each is a tuple starting with the timestamp in milliseconds, and it's designated number. They are:
+The sequencer currently only supports the following event types. Each is a tuple starting with the timestamp in milliseconds, and it's designated number. They are:
 * *Note off* - (timestamp_ms, 0, channelNum)
 * *Note on* - (timestamp_ms, 1, channelNum, midiPitch, instrumentName)
 * *Set enabled channel count* - (timestamp_ms, 2, channelCount)
 * *Run a callback function* - (timestamp_ms, 3, function, data) - data is usually repurposed midiPitch, but can be anything.
+* *Do nothing* - (timestamp_ms, None) - All unrecognized event types do nothing, but None is guaranteed to never be assigned in the future. Useful for maintaining silence at the end of a song.
 
 These can be stored in a list and played with *polysynth.play*, or they can be provided by a stream class with the following structure:
 * *nextevent* - A variable containing the next event. If None, the stream has ended.
@@ -193,7 +194,7 @@ To save on complexity, MIDI CCs are discarded. Pitch bend currently has to be im
 
 MIDI Channel 10, reserved for percussion, is currently discarded both because the configuration of *NOISE* channels is unknown, and to eliminate the need for a drum database. Percussion can still be used by manually reserving instrument(s) for playback on *NOISE* channels.
 
-#### This only works on real hardware - It will not run on the emulator
-This depends on both hardware and physical characteristics which aren't emulated, and would be difficult to add support for.
+#### Only square wave playing on channel 0 will play in the emulator
+Full functionality requires features that aren't currently emulated. Accuracy is not guaranteed.
 ## Other stuff
 This was originally supposed to be a quick experiment to learn the PIO for an unrelated project, but feature creep got to me, and now here we are. In it's current state, it is rougher than I wanted it to be, but I haven't been able to program much recently and wanted to get a usable version released sooner than later. Despite my desires to clean and optimize the code more before release, it is currently perfectly usable.
