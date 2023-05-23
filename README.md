@@ -14,9 +14,13 @@ This library can be divided into three sections, each building on the previous:
 * Uses a simple stream format, allowing large songs and alternative formats to be easily supported.
 * Built-in support for "instruments", with various pitch and phase options.
 * Multiple streams can play at the same time.
-### MIDI file loader
+### Music loaders
+#### MIDI file loader
 * Allows loading and streaming of the vast majority of MIDI files.
 * Supports both automatic and granular control over the mapping of channels and instruments.
+#### MML loader
+* Implements a relatively capable variant of MML *(Music Macro Language)*, a text based music notation.
+* Allows music and complex sound effects to be easily made with no external tools.
 ## Usage
 To use, you will need to add `polysynth.py` to your game folder and import it. This requires adding your game folder to the list of import paths:
 ```python
@@ -158,6 +162,13 @@ Load a MIDI file and return a list of events ready for playback. This will deter
 #### midi.loadstream(*data, mute=None, solo=None, reserve={}, automap=True, callbacks={}*)
 Functionally identical to *midi.load* except it returns a stream instead of a list. Does not change the enabled channel count as it can't be determined without loading the whole file.
 **If you have enough memory to fully load a song, it is always recommended to prefer *midi.load* over *midi.loadstream* as parsing the file on the fly uses more resources and can result in subtle timing inaccuracies**
+### MML functions
+#### mml.load(*data, callback=None*)
+Load a MML sequence and return a list of events ready for playback. This will determine the necessary number of channels to play the song, and insert an event at the beginning to enable that many channels. MML songs containing infinite loops must be opened with *mml.loadstream* as it's impossible to preload infinitely many events.
+* *data* is a string or similar containing a MML song or sound effect.
+* *callback* is a function that will be run any time a `@run` command occurs in the song. The function will be passed the number given to the `@run` command.
+#### mml.loadstream(*data, callback=None*)
+Functionally identical to *mml.load* except it returns a stream instead of a list.
 ### Sequencer stream format
 The sequencer currently only supports the following event types. Each is a tuple starting with the timestamp in milliseconds, and it's designated number. They are:
 * *Note off* - (timestamp_ms, 0, channelNum)
