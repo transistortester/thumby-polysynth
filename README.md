@@ -10,9 +10,10 @@ This library can be divided into three sections, each building on the previous:
 * Multiple writes can be queued at once allowing precise phase control and synchronization.
 * Generates and outputs audio asynchronously with zero CPU usage.
 ### Sequencer
-* Capable of playing music in the background while other code runs.
+* Capable of playing music and sound effects in the background while other code runs.
 * Uses a simple stream format, allowing large songs and alternative formats to be easily supported.
 * Built-in support for "instruments", with various pitch and phase options.
+* Multiple streams can play at the same time.
 ### MIDI file loader
 * Allows loading and streaming of the vast majority of MIDI files.
 * Supports both automatic and granular control over the mapping of channels and instruments.
@@ -104,7 +105,7 @@ Returns the current number of enabled channels.
 Stops one or more components from playing.
 * *mixer* will set the enabled channel count to 0
 * *chan* will clear the pitch on every channel
-* *song* will stop the audio timer
+* *song* will stop the audio timer and stop/reset all streams
 #### polysynth.setpitch(*chan, pitch*)
 Set a channel's pitch in hertz.
 * *chan* is a number from 0 to 6
@@ -116,6 +117,9 @@ Set a channel's pitch to a specific note, according to MIDI note numbering
 ### Sequencer functions
 #### polysynth.playing
 * *True* if the audio timer is running. Not a function.
+#### polysynth.updaterate(*value=None*)
+Returns the speed that the audio timer set to run at. By default, 50 times per second.
+* *value* is a number typically from 50 to 200. If set, it will immediately change the update rate, restarting the timer if necessary. Increasing this will improve timing accuracy (at the cost of higher CPU usage), which may improve the sound of fast songs or sound effects.
 #### polysynth.instrument(*phaselock=False, phase=None, detune=0, vibspeed=0, vibamount=0, rise=0, length=None*)
 Returns an instrument for use in the sequencer.
 * *phaselock* will ensure all pitch changes in the same audio tick are written on the same clock cycle, allowing perfect phase synchronization between channels. **This currently requires briefly pausing output, which may result in an audible click**.
@@ -130,14 +134,18 @@ Functionally the same as *polysynth.setnote*, except an instrument can be specif
 * *chan* is a number from 0 to 6
 * *pitch* is a number, either integer of float. Setting pitch to None will disable output. Disabling output will clear the internal counter.
 * *ins* is a sequencer instrument. This will start the audio timer if needed.
-#### polysynth.play(*song, ins={}, autoenable=True, loop=False*)
-Start playing a song in the background. This will start the audio timer.
+#### polysynth.play(*song, ins={}, autoenable=True, loop=False, speed=1, transpose=0*)
+Start playing a song or sound effect in the background. This will start the audio timer if it isn't already running. Returns a unique stream ID which can be used to refer to the actively playing sound later on.
 * *song* is a list of sequencer events. This is internally wrapped in a stream class and played as a stream.
 * *ins* is a dict of sequencer instruments. Each entry is insName:instrument. Notes will automatically use their specified instrument if it's in the dict. *insName* can be any valid dict key, but with loaded MIDI files it will be a number from 0 to 127, directly mapping to MIDI instrument numbers.
 * *autoenable* determines if the event stream is allowed to change the number of enabled channels.
 * *loop* will loop the song, if supported by the stream type (guaranteed in this case).
-#### polysynth.playstream(song, ins={}, autoenable=True, loop=False)
+* *speed* is a speed multiplier (0.5 would play at half speed, 2 would play at double speed, etc).
+* *transpose* adjusts the pitch in notes (12 would increase the pitch by an octave, -12 would decrease it by an octave, etc).
+#### polysynth.playstream(*song, ins={}, autoenable=True, loop=False, speed=1, transpose=0*)
 Functionally identical to *polysynth.play*, except *song* is a stream of events rather than a list of events.
+#### polysynth.stopstream(*streamID*)
+Stops and resets the corresponding stream if it's currently playing.
 ### MIDI functions
 #### midi.load(*data, mute=None, solo=None, reserve={}, automap=True, callbacks={}*)
 Load a MIDI file and return a list of events ready for playback. This will determine the necessary number of channels to play the song, and insert an event at the beginning to enable that many channels.
@@ -161,7 +169,7 @@ The sequencer currently only supports the following event types. Each is a tuple
 These can be stored in a list and played with *polysynth.play*, or they can be provided by a stream class with the following structure:
 * *nextevent* - A variable containing the next event. If None, the stream has ended.
 * *readevent()* - A function that puts the next event in *nextevent* variable.
-* *reset()* - A function that starts the stream from the beginning, if possible. **Must return True if it *does* reset, False if it *doesn't***.
+* *reset()* - A function that starts the stream from the beginning, if possible. **Must return True if it *does* reset, False if it *doesn't***. Streams will be automatically reset when they end or are stopped.
 ## Additional details
 ### MIDI note numbering/midiPitch
 ![Diagram showing how MIDI numbers map to notes on a piano](./assets/midinumbers.png)
@@ -173,6 +181,8 @@ MIDI uses one number per note, ranging from 0 to 127, extending both below and a
 All functions in this library that accept midiPitch tolerate floats, and numbers *beyond* the normal MIDI range (though there's not much point since they rapidly exceed audible range).
 ### Volume
 Audio is always output at maximum volume, split evenly between the enabled channels. The fewer channels that are enabled, the louder each individual one will be.
+### Stream priority
+If multiple streams try to use the same channel simultaneously, the stream that started more recently gets priority.
 ### Use on other RP2040 devices
 As long as the PIO isn't already in use, this will function on any RP2040 device, provided that GPIO pins `7, 8, 9, 10, 11, 21, 22,` and `25` are disconnected and not in use. Audio will be output on GPIO 28, using PWM at above-audible frequencies.
 
