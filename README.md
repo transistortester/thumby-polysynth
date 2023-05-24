@@ -47,7 +47,7 @@ If you need to change the configuration, you can do so at any point.
 
 *Note: If you change the clock speed with `machine.freq()`, you must also reconfigure the channels for pitches to be correct.*
 ### Examples
-These assume that `polysynth`, `midi`, `time`, and `thumby` have all been imported.
+These assume that `polysynth`, `midi`, `mml`, `time`, and `thumby` have all been imported.
 
 Keep in mind that polysynth is capable of *much* more, these are just the basics.
 #### Playing a chord
@@ -94,6 +94,87 @@ while polysynth.playing:
     if thumby.buttonB.justPressed():
         polysynth.stop()
     thumby.display.update()
+```
+
+#### Looping song with percussion (MML)
+```python
+polysynth.configure([polysynth.SQUARE, polysynth.SQUARE, polysynth.SQUARE, polysynth.NOISE])
+
+song = mml.loadstream(""";Super Mario Land - Muda Kingdom
+;Instrument 1 is high drum, 2 is low drum - pitches of 150 and 125 respectively are good
+!channel 0 ;square 1
+@t80
+@n1 g#5 f# e @n6 (6d) ;opening
+(0 @n6 (2 (6.)> c#.d-.e(5.) <a>e.dc#--<b-->c#.<a-----. (12.)) (6.)> d.d..d.....c#<b--a--g#.a..b (24.)> d.d..d.....c#<b--a-- @n1 g# f# e d)
+
+!channel 1 ;square 2
+@n1 ....
+(0 @n6 (2 (6.) e5.f#-.>c#(5.) <c#>c#.<ba--f#--a.f#-----. (12.)) (6.) f#.f#..f#.....ed--c#--<b>.c#..g# (24.) f#.f#..f#.....ed--c#-- @n1 ....)
+
+!channel 2 ;bass
+@n1 e5 d c# @n6 <(6b) ;opening
+@n6 (0 (2 (4 a--a-e)(4 d--d-a)) (4 b--b-f#)(4 e--e-b)(4 b--b-f#) >e--e--d--d--c#--c#--<b--b--)
+
+!channel 3 ;percussion - uses only the lowest note possible, the actual pitch is controlled with instruments
+@n6 @l50 @i1 (4 c0..) @i2 c..c.. (6 c) ;opening
+(0 @i1c.. @i2c. @i1c.c. @i2c. @i1c)
+""")
+
+instruments = {
+1:polysynth.instrument(detune=150), #high drum
+2:polysynth.instrument(detune=125), #low drum
+}
+
+polysynth.playstream(song, ins=instruments) #have to use a stream since the song itself contains infinite loops
+
+while polysynth.playing:
+    if thumby.buttonA.justPressed():
+        polysynth.stop()
+    thumby.display.update()
+
+polysynth.stop()
+```
+
+#### Music with complex sound effects (MML)
+Press A to give yourself a mushroom. Press B to start running out of time.
+```python
+polysynth.updaterate(100) #increase how often the sequencer updates, since the faster song benefits from the more precise timing.
+
+underground = mml.load(""";Super Mario Bros - Underground
+!macro 0 @n4@l80 (2c>c<<a>a<a#>a#(6.)) <f>f<d>d<d#>d#(6.) <f>f<d>d<d#>d#(4.) @n6@l90 d#dc# @n2@l50 cd#d<g#g>c# @n6@l90 cf#fea#a @n3@l60 g#d#<ba#ag# (9.)
+!channel 0 @t100 @o5 @m0 ;melody
+!channel 1 @o4 @m0 ;bass
+""")
+
+mushroom = mml.load("!c0@t113@n16c6<g>ceg>c<g<g>cd#g#>cd#g#d#a#5>dfa#fa#>dfa#f")
+
+fast = False #keeps track of if we're playing the sped-up version
+
+def playfast(dummy): #this is triggered by the @run command at the end of the hurryup sound effect. "dummy" contains the 0 given to @r, which isn't needed in this case.
+    polysynth.play(underground, speed=1.5, loop=True)
+
+hurryup = mml.load(""";Super Mario Bros - Hurry Up!
+!c0 @t106 @n6 @l90 e5>d.dd.    f5>d#.d#d#. f#5>e.ee.    f.f------
+!c1       @n6 @l90 e4>g#-g#g#- f4>a-aa-    f#4>a#-a#a#- b.b------
+!c2       @n6      b4>b.b--    c>c.c--     c#5>c#.c#--  g4.g------- @r0
+""", callback=playfast) #specify that the @run command should trigger the playfast function
+
+polysynth.configure()
+song = polysynth.play(underground, loop=True) #song contains the assigned stream ID, which is needed to individually stop it later
+
+while True:
+    if thumby.buttonA.justPressed(): #play the mushroom sound effect if A is pressed.
+        polysynth.play(mushroom, autoenable=False) #since music is already playing, disallow this from changing the enabled channel count.
+    if thumby.buttonB.justPressed(): #play the hurryup sound effect/faster music on the first B press, quit on the second.
+        if not fast:
+            polysynth.stopstream(song) #stop the song without affecting any sound effects
+            polysynth.play(hurryup)
+            fast = True
+        else:
+            break
+    thumby.display.update()
+
+polysynth.stop()
 ```
 **For a more complex example, see [PSdemo](./PSdemo) *(video [here](./assets/polysynth-demo-recompressed.mp4))***
 ## Documentation
