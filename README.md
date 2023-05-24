@@ -181,6 +181,66 @@ These can be stored in a list and played with *polysynth.play*, or they can be p
 * *nextevent* - A variable containing the next event. If None, the stream has ended.
 * *readevent()* - A function that puts the next event in *nextevent* variable.
 * *reset()* - A function that starts the stream from the beginning, if possible. **Must return True if it *does* reset, False if it *doesn't***. Streams will be automatically reset when they end or are stopped.
+## MML syntax
+MML *(Music Macro Language)* is a simple way or representing music with text. Variants of MML were widely used for video games in the 80s and 90s, and it remains in use for chiptunes today.
+
+Not all variants of MML have the same features or syntax. This documentation only applies to this specific variant.
+### Structure
+An MML sequence is divided into sections, each marked with an exclamation point `!`. Sections can either be audio channels, or macros.
+
+Comments are marked with a semicolon `;`. Anything after a semicolon on a given line of text is ignored.
+#### Channels
+Each channel is started with the command `!channel n` where *n* is the audio channel used (0 to 6). **Each song must have at least one channel.**
+
+All channels play simultaneously and in lockstep. The song's tempo is shared across all channels, but other playback parameters are unique to each.
+#### Macros
+Macros contain snippets of MML that can be reused multiple times in a song.
+
+Each macro is started with the command `!macro n` where *n* is a number you can use to invoke it.
+
+Macros must be defined in the file at some point before they're used.
+
+Macros can contain references to other macros, provided they're defined earlier.
+### Commands
+Commands control various playback parameters. Each is marked with an `@`, and requires a positive integer number after it.
+* `@tempo n` - set the tempo of the song in beats per minute (default 120)
+* `@notesPerBeat n` - set how fast notes are played (default 1)
+* `@instrument n` - set what sequencer instrument to use (default None)
+* `@lengthOfNote n%` - set the duration each note is actually played for (default 100%). 75% for instance would play sound for 75% of one note, followed by a gap for 25% of one note.
+* `@octave n` - set the current octave notes are played in (default 5, the lowest note of which is middle C)
+* `@macro n` - insert a macro at this location. Macros behave like copying+pasting their contents at this location.
+* `@run n` - run the provided callback function with the argument *n*
+
+**Only the first letter of a command is required.** For instance, `@lengthOfNote 50%` can simply be written as `@L50`.
+### Notes
+`C`, `D`, `E`, `F`, `G`, `A`, and `B` will play the given note in the current octave.
+
+Any note can be followed by a sharp `#` to increase it by a half step (for instance, `c#`)
+
+Additionally, any note can also be followed by a number as a shorthand to set the octave (for instance, `c4` or `c#4` are equivalent to `@o4 c` or `@o4 c#`)
+
+A period `.` is treated as a rest and will play nothing.
+
+A dash `-` will seamlessly continue the previous note. Note that a `@lengthOfNote` of less than 100% is ignored on the previous note, and will only apply on the final dash of a sustained note.
+
+`>` and `<` will increase and decrease the current octave by 1 respectively.
+### Loops
+Loops are created with brackets `(` and `)`, with the opening bracket followed by the loop count (for instance, `(3 cdefgab>c<)` plays a scale 3 times).
+
+If the loop count is 0, the loop will continue infinitely.
+### Formatting
+Commands/sections only require the first letter, and text outside of command/note definitions is ignored. Everything is also case-insensitive. This means that:
+```
+!Channel 0 ;only one channel here
+@notes per beat 4
+@length 80%
+(3 C6 D D# D) C - - -
+```
+is equivalent to
+```
+!c0@n4@l80(3c6dd#d)c---
+```
+Despite extraneous text outside of commands being ignored (like the `%` in the above example), it's probably best to avoid it in case it conflicts with future commands.
 ## Additional details
 ### MIDI note numbering/midiPitch
 ![Diagram showing how MIDI numbers map to notes on a piano](./assets/midinumbers.png)
