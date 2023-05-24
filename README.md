@@ -198,13 +198,13 @@ Macros contain snippets of MML that can be reused multiple times in a song.
 
 Each macro is started with the command `!macro n` where *n* is a number you can use to invoke it.
 
-Macros must be defined in the file at some point before they're used.
+Macros must be defined in the song at some point before they're actually used.
 
 Macros can contain references to other macros, provided they're defined earlier.
 ### Commands
 Commands control various playback parameters. Each is marked with an `@`, and requires a positive integer number after it.
 * `@tempo n` - set the tempo of the song in beats per minute (default 120)
-* `@notesPerBeat n` - set how fast notes are played (default 1)
+* `@notesPerBeat n` - set how many notes are played in each beat (default 1)
 * `@instrument n` - set what sequencer instrument to use (default None)
 * `@lengthOfNote n%` - set the duration each note is actually played for (default 100%). 75% for instance would play sound for 75% of one note, followed by a gap for 25% of one note.
 * `@octave n` - set the current octave notes are played in (default 5, the lowest note of which is middle C)
