@@ -10,12 +10,17 @@ This library can be divided into three sections, each building on the previous:
 * Multiple writes can be queued at once allowing precise phase control and synchronization.
 * Generates and outputs audio asynchronously with zero CPU usage.
 ### Sequencer
-* Capable of playing music in the background while other code runs.
+* Capable of playing music and sound effects in the background while other code runs.
 * Uses a simple stream format, allowing large songs and alternative formats to be easily supported.
 * Built-in support for "instruments", with various pitch and phase options.
-### MIDI file loader
+* Multiple streams can play at the same time.
+### Music loaders
+#### MIDI file loader
 * Allows loading and streaming of the vast majority of MIDI files.
 * Supports both automatic and granular control over the mapping of channels and instruments.
+#### MML loader
+* Implements a relatively capable variant of MML *(Music Macro Language)*, a text based music notation.
+* Allows music and complex sound effects to be easily made with no external tools.
 ## Usage
 To use, you will need to add `polysynth.py` to your game folder and import it. This requires adding your game folder to the list of import paths:
 ```python
@@ -42,7 +47,7 @@ If you need to change the configuration, you can do so at any point.
 
 *Note: If you change the clock speed with `machine.freq()`, you must also reconfigure the channels for pitches to be correct.*
 ### Examples
-These assume that `polysynth`, `midi`, `time`, and `thumby` have all been imported.
+These assume that `polysynth`, `midi`, `mml`, `time`, and `thumby` have all been imported.
 
 Keep in mind that polysynth is capable of *much* more, these are just the basics.
 #### Playing a chord
@@ -90,6 +95,87 @@ while polysynth.playing:
         polysynth.stop()
     thumby.display.update()
 ```
+
+#### Looping song with percussion (MML)
+```python
+polysynth.configure([polysynth.SQUARE, polysynth.SQUARE, polysynth.SQUARE, polysynth.NOISE])
+
+song = mml.loadstream(""";Super Mario Land - Muda Kingdom
+;Instrument 1 is high drum, 2 is low drum - pitches of 150 and 125 respectively are good
+!channel 0 ;square 1
+@t80
+@n1 g#5 f# e @n6 (6d) ;opening
+(0 @n6 (2 (6.)> c#.d-.e(5.) <a>e.dc#--<b-->c#.<a-----. (12.)) (6.)> d.d..d.....c#<b--a--g#.a..b (24.)> d.d..d.....c#<b--a-- @n1 g# f# e d)
+
+!channel 1 ;square 2
+@n1 ....
+(0 @n6 (2 (6.) e5.f#-.>c#(5.) <c#>c#.<ba--f#--a.f#-----. (12.)) (6.) f#.f#..f#.....ed--c#--<b>.c#..g# (24.) f#.f#..f#.....ed--c#-- @n1 ....)
+
+!channel 2 ;bass
+@n1 e5 d c# @n6 <(6b) ;opening
+@n6 (0 (2 (4 a--a-e)(4 d--d-a)) (4 b--b-f#)(4 e--e-b)(4 b--b-f#) >e--e--d--d--c#--c#--<b--b--)
+
+!channel 3 ;percussion - uses only the lowest note possible, the actual pitch is controlled with instruments
+@n6 @l50 @i1 (4 c0..) @i2 c..c.. (6 c) ;opening
+(0 @i1c.. @i2c. @i1c.c. @i2c. @i1c)
+""")
+
+instruments = {
+1:polysynth.instrument(detune=150), #high drum
+2:polysynth.instrument(detune=125), #low drum
+}
+
+polysynth.playstream(song, ins=instruments) #have to use a stream since the song itself contains infinite loops
+
+while polysynth.playing:
+    if thumby.buttonA.justPressed():
+        polysynth.stop()
+    thumby.display.update()
+
+polysynth.stop()
+```
+
+#### Music with complex sound effects (MML)
+Press A to give yourself a mushroom. Press B to start running out of time.
+```python
+polysynth.updaterate(100) #increase how often the sequencer updates, since the faster song benefits from the more precise timing.
+
+underground = mml.load(""";Super Mario Bros - Underground
+!macro 0 @n4@l80 (2c>c<<a>a<a#>a#(6.)) <f>f<d>d<d#>d#(6.) <f>f<d>d<d#>d#(4.) @n6@l90 d#dc# @n2@l50 cd#d<g#g>c# @n6@l90 cf#fea#a @n3@l60 g#d#<ba#ag# (9.)
+!channel 0 @t100 @o5 @m0 ;melody
+!channel 1 @o4 @m0 ;bass
+""")
+
+mushroom = mml.load("!c0@t113@n16c6<g>ceg>c<g<g>cd#g#>cd#g#d#a#5>dfa#fa#>dfa#f")
+
+fast = False #keeps track of if we're playing the sped-up version
+
+def playfast(dummy): #this is triggered by the @run command at the end of the hurryup sound effect. "dummy" contains the 0 given to @r, which isn't needed in this case.
+    polysynth.play(underground, speed=1.5, loop=True)
+
+hurryup = mml.load(""";Super Mario Bros - Hurry Up!
+!c0 @t106 @n6 @l90 e5>d.dd.    f5>d#.d#d#. f#5>e.ee.    f.f------
+!c1       @n6 @l90 e4>g#-g#g#- f4>a-aa-    f#4>a#-a#a#- b.b------
+!c2       @n6      b4>b.b--    c>c.c--     c#5>c#.c#--  g4.g------- @r0
+""", callback=playfast) #specify that the @run command should trigger the playfast function
+
+polysynth.configure()
+song = polysynth.play(underground, loop=True) #song contains the assigned stream ID, which is needed to individually stop it later
+
+while True:
+    if thumby.buttonA.justPressed(): #play the mushroom sound effect if A is pressed.
+        polysynth.play(mushroom, autoenable=False) #since music is already playing, disallow this from changing the enabled channel count.
+    if thumby.buttonB.justPressed(): #play the hurryup sound effect/faster music on the first B press, quit on the second.
+        if not fast:
+            polysynth.stopstream(song) #stop the song without affecting any sound effects
+            polysynth.play(hurryup)
+            fast = True
+        else:
+            break
+    thumby.display.update()
+
+polysynth.stop()
+```
 **For a more complex example, see [PSdemo](./PSdemo) *(video [here](./assets/polysynth-demo-recompressed.mp4))***
 ## Documentation
 ### Core functions
@@ -104,7 +190,7 @@ Returns the current number of enabled channels.
 Stops one or more components from playing.
 * *mixer* will set the enabled channel count to 0
 * *chan* will clear the pitch on every channel
-* *song* will stop the audio timer
+* *song* will stop the audio timer and stop/reset all streams
 #### polysynth.setpitch(*chan, pitch*)
 Set a channel's pitch in hertz.
 * *chan* is a number from 0 to 6
@@ -116,6 +202,9 @@ Set a channel's pitch to a specific note, according to MIDI note numbering
 ### Sequencer functions
 #### polysynth.playing
 * *True* if the audio timer is running. Not a function.
+#### polysynth.updaterate(*value=None*)
+Returns the speed that the audio timer set to run at. By default, 50 times per second.
+* *value* is a number typically from 50 to 200. If set, it will immediately change the update rate, restarting the timer if necessary. Increasing this will improve timing accuracy (at the cost of higher CPU usage), which may improve the sound of fast songs or sound effects.
 #### polysynth.instrument(*phaselock=False, phase=None, detune=0, vibspeed=0, vibamount=0, rise=0, length=None*)
 Returns an instrument for use in the sequencer.
 * *phaselock* will ensure all pitch changes in the same audio tick are written on the same clock cycle, allowing perfect phase synchronization between channels. **This currently requires briefly pausing output, which may result in an audible click**.
@@ -130,14 +219,18 @@ Functionally the same as *polysynth.setnote*, except an instrument can be specif
 * *chan* is a number from 0 to 6
 * *pitch* is a number, either integer of float. Setting pitch to None will disable output. Disabling output will clear the internal counter.
 * *ins* is a sequencer instrument. This will start the audio timer if needed.
-#### polysynth.play(*song, ins={}, autoenable=True, loop=False*)
-Start playing a song in the background. This will start the audio timer.
+#### polysynth.play(*song, ins={}, autoenable=True, loop=False, speed=1, transpose=0*)
+Start playing a song or sound effect in the background. This will start the audio timer if it isn't already running. Returns a unique stream ID which can be used to refer to the actively playing sound later on.
 * *song* is a list of sequencer events. This is internally wrapped in a stream class and played as a stream.
 * *ins* is a dict of sequencer instruments. Each entry is insName:instrument. Notes will automatically use their specified instrument if it's in the dict. *insName* can be any valid dict key, but with loaded MIDI files it will be a number from 0 to 127, directly mapping to MIDI instrument numbers.
 * *autoenable* determines if the event stream is allowed to change the number of enabled channels.
 * *loop* will loop the song, if supported by the stream type (guaranteed in this case).
-#### polysynth.playstream(song, ins={}, autoenable=True, loop=False)
+* *speed* is a speed multiplier (0.5 would play at half speed, 2 would play at double speed, etc).
+* *transpose* adjusts the pitch in notes (12 would increase the pitch by an octave, -12 would decrease it by an octave, etc).
+#### polysynth.playstream(*song, ins={}, autoenable=True, loop=False, speed=1, transpose=0*)
 Functionally identical to *polysynth.play*, except *song* is a stream of events rather than a list of events.
+#### polysynth.stopstream(*streamID*)
+Stops and resets the corresponding stream if it's currently playing.
 ### MIDI functions
 #### midi.load(*data, mute=None, solo=None, reserve={}, automap=True, callbacks={}*)
 Load a MIDI file and return a list of events ready for playback. This will determine the necessary number of channels to play the song, and insert an event at the beginning to enable that many channels.
@@ -150,17 +243,85 @@ Load a MIDI file and return a list of events ready for playback. This will deter
 #### midi.loadstream(*data, mute=None, solo=None, reserve={}, automap=True, callbacks={}*)
 Functionally identical to *midi.load* except it returns a stream instead of a list. Does not change the enabled channel count as it can't be determined without loading the whole file.
 **If you have enough memory to fully load a song, it is always recommended to prefer *midi.load* over *midi.loadstream* as parsing the file on the fly uses more resources and can result in subtle timing inaccuracies**
+### MML functions
+#### mml.load(*data, callback=None*)
+Load a MML sequence and return a list of events ready for playback. This will determine the necessary number of channels to play the song, and insert an event at the beginning to enable that many channels. MML songs containing infinite loops must be opened with *mml.loadstream* as it's impossible to preload infinitely many events.
+* *data* is a string or similar containing a MML song or sound effect.
+* *callback* is a function that will be run any time a `@run` command occurs in the song. The function will be passed the number given to the `@run` command.
+#### mml.loadstream(*data, callback=None*)
+Functionally identical to *mml.load* except it returns a stream instead of a list.
 ### Sequencer stream format
-The sequencer currently only supports 4 event types. Each is a tuple starting with the timestamp in milliseconds, and it's designated number. They are:
+The sequencer currently only supports the following event types. Each is a tuple starting with the timestamp in milliseconds, and it's designated number. They are:
 * *Note off* - (timestamp_ms, 0, channelNum)
 * *Note on* - (timestamp_ms, 1, channelNum, midiPitch, instrumentName)
 * *Set enabled channel count* - (timestamp_ms, 2, channelCount)
 * *Run a callback function* - (timestamp_ms, 3, function, data) - data is usually repurposed midiPitch, but can be anything.
+* *Do nothing* - (timestamp_ms, None) - All unrecognized event types do nothing, but None is guaranteed to never be assigned in the future. Useful for maintaining silence at the end of a song.
 
 These can be stored in a list and played with *polysynth.play*, or they can be provided by a stream class with the following structure:
 * *nextevent* - A variable containing the next event. If None, the stream has ended.
 * *readevent()* - A function that puts the next event in *nextevent* variable.
-* *reset()* - A function that starts the stream from the beginning, if possible. **Must return True if it *does* reset, False if it *doesn't***.
+* *reset()* - A function that starts the stream from the beginning, if possible. **Must return True if it *does* reset, False if it *doesn't***. Streams will be automatically reset when they end or are stopped.
+## MML syntax
+MML *(Music Macro Language)* is a simple way or representing music with text. Variants of MML were widely used for video games in the 80s and 90s, and it remains in use for chiptunes today.
+
+Not all variants of MML have the same features or syntax. This documentation only applies to this specific variant.
+### Structure
+An MML sequence is divided into sections, each marked with an exclamation point `!`. Sections can either be audio channels, or macros.
+
+Comments are marked with a semicolon `;`. Anything after a semicolon on a given line of text is ignored.
+#### Channels
+Each channel is started with the command `!channel n` where *n* is the audio channel used (0 to 6). **Each song must have at least one channel.**
+
+All channels play simultaneously and in lockstep. The song's tempo is shared across all channels, but other playback parameters are unique to each.
+#### Macros
+Macros contain snippets of MML that can be reused multiple times in a song.
+
+Each macro is started with the command `!macro n` where *n* is a number you can use to invoke it.
+
+Macros must be defined in the song at some point before they're actually used.
+
+Macros can contain references to other macros, provided they're defined earlier.
+### Commands
+Commands control various playback parameters. Each is marked with an `@`, and requires a positive integer number after it.
+* `@tempo n` - set the tempo of the song in beats per minute (default 120)
+* `@notesPerBeat n` - set how many notes are played in each beat (default 1)
+* `@instrument n` - set what sequencer instrument to use (default None)
+* `@lengthOfNote n%` - set the duration each note is actually played for (default 100%). 75% for instance would play sound for 75% of one note, followed by a gap for 25% of one note.
+* `@octave n` - set the current octave notes are played in (default 5, the lowest note of which is middle C)
+* `@macro n` - insert a macro at this location. Macros behave like copying+pasting their contents at this location.
+* `@run n` - run the provided callback function with the argument *n*
+
+**Only the first letter of a command is required.** For instance, `@lengthOfNote 50%` can simply be written as `@L50`.
+### Notes
+`C`, `D`, `E`, `F`, `G`, `A`, and `B` will play the given note in the current octave.
+
+Any note can be followed by a sharp `#` to increase it by a half step (for instance, `c#`)
+
+Additionally, any note can also be followed by a number as a shorthand to set the octave (for instance, `c4` or `c#4` are equivalent to `@o4 c` or `@o4 c#`)
+
+A period `.` is treated as a rest and will play nothing.
+
+A dash `-` will seamlessly continue the previous note. Note that a `@lengthOfNote` of less than 100% is ignored on the previous note, and will only apply on the final dash of a sustained note.
+
+`>` and `<` will increase and decrease the current octave by 1 respectively.
+### Loops
+Loops are created with brackets `(` and `)`, with the opening bracket followed by the loop count (for instance, `(3 cdefgab>c<)` plays a scale 3 times).
+
+If the loop count is 0, the loop will continue infinitely.
+### Formatting
+Commands/sections only require the first letter, and text outside of command/note definitions is ignored. Everything is also case-insensitive. This means that:
+```
+!Channel 0 ;only one channel here
+@notes per beat 4
+@length 80%
+(3 C6 D D# D) C - - -
+```
+is equivalent to
+```
+!c0@n4@l80(3c6dd#d)c---
+```
+Despite extraneous text outside of commands being ignored (like the `%` in the above example), it's probably best to avoid it in case it conflicts with future commands.
 ## Additional details
 ### MIDI note numbering/midiPitch
 ![Diagram showing how MIDI numbers map to notes on a piano](./assets/midinumbers.png)
@@ -172,6 +333,8 @@ MIDI uses one number per note, ranging from 0 to 127, extending both below and a
 All functions in this library that accept midiPitch tolerate floats, and numbers *beyond* the normal MIDI range (though there's not much point since they rapidly exceed audible range).
 ### Volume
 Audio is always output at maximum volume, split evenly between the enabled channels. The fewer channels that are enabled, the louder each individual one will be.
+### Stream priority
+If multiple streams try to use the same channel simultaneously, the stream that started more recently gets priority.
 ### Use on other RP2040 devices
 As long as the PIO isn't already in use, this will function on any RP2040 device, provided that GPIO pins `7, 8, 9, 10, 11, 21, 22,` and `25` are disconnected and not in use. Audio will be output on GPIO 28, using PWM at above-audible frequencies.
 
@@ -193,7 +356,7 @@ To save on complexity, MIDI CCs are discarded. Pitch bend currently has to be im
 
 MIDI Channel 10, reserved for percussion, is currently discarded both because the configuration of *NOISE* channels is unknown, and to eliminate the need for a drum database. Percussion can still be used by manually reserving instrument(s) for playback on *NOISE* channels.
 
-#### This only works on real hardware - It will not run on the emulator
-This depends on both hardware and physical characteristics which aren't emulated, and would be difficult to add support for.
+#### Only square wave playing on channel 0 will play in the emulator
+Full functionality requires features that aren't currently emulated. Accuracy is not guaranteed.
 ## Other stuff
 This was originally supposed to be a quick experiment to learn the PIO for an unrelated project, but feature creep got to me, and now here we are. In it's current state, it is rougher than I wanted it to be, but I haven't been able to program much recently and wanted to get a usable version released sooner than later. Despite my desires to clean and optimize the code more before release, it is currently perfectly usable.
